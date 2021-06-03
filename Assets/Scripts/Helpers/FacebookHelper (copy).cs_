@@ -1,0 +1,244 @@
+using System;
+using UnityEngine;
+using System.Collections;
+
+public class FacebookHelper
+{
+	public static FacebookHelper Instance = new FacebookHelper();
+
+	private static object _lockObject = new object();
+
+	private bool _autoInitAndLogin;
+	private bool _autoLoginAndPublish;
+
+	public bool DownloadProfileImage { get; set; }
+	public string DownloadProfileImageUrl { get; set; }
+
+	public const string DefaultLoginOptions = "user_about_me,public_profile,publish_actions";
+
+	public Texture2D Picture {
+		get;
+		set;
+	}
+
+	public string FirstName{
+		get;
+		set;
+	}
+
+	public bool IsReady {
+		get
+		{
+			return FB.IsInitialized && FB.IsLoggedIn;
+		}
+	}
+
+	public bool IsLoggedIn {
+		get
+		{
+			return FB.IsLoggedIn;
+		}
+	}
+
+	public bool IsInitialized {
+		get
+		{
+			return FB.IsInitialized;
+		}
+	}
+
+	public void Init()
+	{
+		lock(_lockObject)
+		{
+			if(!FB.IsInitialized)
+			{
+				FB.Init(OnInitComplete, OnHideUnity);
+			}
+		}
+	}
+
+	public void Login(string options)
+	{
+		if(options==null)
+			options = DefaultLoginOptions;
+
+		lock (_lockObject) {
+			if(!FB.IsLoggedIn)
+			{
+				FB.Login(options, LoginCallback);
+			}
+		}
+	}
+
+	public void LoadProfile ()
+	{
+		FB.API("me?fields=first_name,name,picture", Facebook.HttpMethod.GET, (result) => {
+			if(result.Error == null)
+			{
+				Debug.Log("get profile name and picture");
+
+				IDictionary dict = Facebook.MiniJSON.Json.Deserialize(result.Text) as IDictionary;
+				if(dict.Contains("first_name"))
+				{
+					FirstName = dict["first_name"].ToString();
+				}
+
+				if(dict.Contains("picture"))
+				{
+					var pictureDict = (IDictionary)dict["picture"];
+					if(pictureDict.Contains("data"))
+					{
+						var pictureDataDict = (IDictionary)pictureDict["data"];
+						if(pictureDataDict.Contains("url"))
+						{
+							DownloadProfileImageUrl = pictureDataDict["url"].ToString();
+							DownloadProfileImage = true;
+						}
+					}
+				}
+			}
+		});
+
+	}
+
+	public IEnumerator AutoDownloadProfilePicture(string url)
+	{
+		if(url != null)
+		{
+			DownloadProfileImage = false;
+
+			var w = new WWW(url);
+			while (!w.isDone) {
+				yield return new WaitForSeconds(1);
+			}
+			Picture = w.texture;
+		}
+	}
+	
+	public IEnumerator AutoFacebookLogin(string options)
+	{
+		_autoInitAndLogin = true;
+
+		Init ();
+
+		while (_autoInitAndLogin && !FB.IsInitialized) {
+			yield return new WaitForSeconds(1);
+		}
+
+		Login(options);
+
+
+		_autoInitAndLogin = false;
+	}
+
+	public IEnumerator AutoPublishImageAndText(string message, Texture2D texture)
+	{
+		_autoLoginAndPublish = true;
+
+		Init ();
+
+		yield return new WaitForSeconds(1);
+
+		while(_autoLoginAndPublish && !FB.IsInitialized)
+		{
+			yield return new WaitForSeconds(1);
+		}
+
+		Login(DefaultLoginOptions);
+		
+		while(_autoLoginAndPublish && !FB.IsLoggedIn)
+		{	
+			yield return new WaitForSeconds(1);
+		}
+
+		PublishImageAndText(message, texture);
+		
+		_autoLoginAndPublish = false;
+	}
+
+	public void PublishImageAndText(string message, Texture2D texture)
+	{
+		Init();
+		Login(DefaultLoginOptions);
+
+		if(message==null && texture == null)
+		{
+			Debug.LogError("FacebookHelper: message and texture is null, request ignored");
+			return;
+		}
+
+		var wwwForm = new WWWForm();
+
+		if(texture==null)
+		{
+			Debug.LogWarning("Texture is null");
+		}
+		else
+		{
+			byte[] screenshot = texture.EncodeToPNG();
+			wwwForm.AddBinaryData("image", screenshot, "InteractiveConsole.png");
+		}
+
+		if(message==null)
+		{
+			Debug.LogWarning("message is null");
+		}
+		else
+		{
+			wwwForm.AddField("message", message);
+		}
+
+		FB.API("me/photos", Facebook.HttpMethod.POST, PublishImageAndTextCallback, wwwForm);
+	}
+
+	private void PublishImageAndTextCallback(FBResult result)
+	{
+		if(result == null)
+		{
+			Debug.LogError("result returned as null");
+		}
+		else if(!string.IsNullOrEmpty(result.Error))
+		{
+			Debug.LogError(string.Concat("publish image and text is not worked, returned error message is ", result.Error, " and text is ", result.Text));
+		}
+		else
+		{
+			Debug.Log("content published to facebook successufuly");
+		}
+	}
+	
+	void LoginCallback(FBResult result)
+	{
+		if (result.Error != null)
+		{
+			Debug.LogError("Error Response:\n" + result.Error);
+			_autoLoginAndPublish = false;
+		}
+		else if (!FB.IsLoggedIn)
+		{
+			Debug.LogWarning("Login cancelled by Player");
+			_autoLoginAndPublish = false;
+		}
+		else
+		{
+			Debug.Log("Login was successful!");
+			LoadProfile();
+		}
+	}
+
+	private void OnInitComplete()
+	{
+		Debug.Log("FB.Init completed: Is user logged in? " + FB.IsLoggedIn);
+
+		if(FB.IsLoggedIn)
+		{
+			LoadProfile();
+		}
+	}
+	
+	private void OnHideUnity(bool isGameShown)
+	{
+		Debug.Log("FacebookHelper: Is game showing? " + isGameShown);
+	}
+}
