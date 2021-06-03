@@ -1,5 +1,5 @@
 # flux
-Source code of 'The Flux Game' published in 2016.
+Source code of 'The Flux Game'. Published in 2016.
 
 ![](SampleD.jpeg)
 
