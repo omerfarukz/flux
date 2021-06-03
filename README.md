@@ -1,2 +1,2 @@
 # flux
-Source code of 'The Flux Game' published in 2015.
+Source code of 'The Flux Game' published in 2016.
